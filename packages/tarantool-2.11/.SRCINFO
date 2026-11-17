@@ -1,0 +1,37 @@
+pkgbase = tarantool-2.11
+	pkgdesc = In-memory computing platform: a database and a Lua application server (2.11 series)
+	pkgver = 2.11.10
+	pkgrel = 1
+	url = https://www.tarantool.io
+	arch = x86_64
+	license = BSD-2-Clause
+	makedepends = cmake
+	makedepends = git
+	makedepends = ninja
+	makedepends = systemd
+	depends = gcc-libs
+	depends = glibc
+	depends = icu
+	depends = openssl-3
+	depends = readline
+	depends = zlib
+	depends = libcrypto.so
+	depends = libicui18n.so
+	depends = libicuuc.so
+	depends = libreadline.so
+	depends = libssl.so
+	depends = libz.so
+	provides = tarantool=2.11.10
+	conflicts = tarantool
+	options = !debug
+	options = !lto
+	backup = etc/default/tarantool
+	backup = etc/tarantool/instances.available/example.lua
+	source = https://download.tarantool.org/tarantool/src/tarantool-2.11.10.tar.gz
+	source = tarantool.sysusers
+	source = tarantool.tmpfiles
+	sha256sums = 4e786e54b6053ba9a19eefb2bff4690dcf8a6b96296aed902a6d2f70abb6e756
+	sha256sums = 203006d16270e1035a793ab5074c906d3ad6952ff601f0e63f07a5c4331d4b8c
+	sha256sums = a6dd668df5ed56fb127377da762167671ba85945bcab2c2e2adab205aea81d33
+
+pkgname = tarantool-2.11

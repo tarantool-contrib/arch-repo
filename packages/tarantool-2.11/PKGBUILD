@@ -1,0 +1,95 @@
+# Tarantool of one series, x.y: its patch releases are the upgrades of the
+# package. The series are separate packages that conflict with each other,
+# so that pacman -Syu never moves a database to another series.
+#
+# The 2.x series have tarantoolctl and the systemd unit tarantool@ of it,
+# which run the instances of /etc/tarantool/instances.enabled as the user
+# tarantool.
+
+_series=2.11
+pkgname=tarantool-$_series
+pkgver=2.11.10
+pkgrel=1
+pkgdesc="In-memory computing platform: a database and a Lua application server ($_series series)"
+arch=(x86_64)
+url=https://www.tarantool.io
+license=(BSD-2-Clause)
+# Tarantool and its bundled curl build against OpenSSL 3, not 4. The
+# libraries are given by soname too: makepkg pins them to the sonames the
+# programs link, so pacman holds back an upgrade that would break them.
+depends=(gcc-libs glibc icu openssl-3 readline zlib
+         libcrypto.so libicui18n.so libicuuc.so libreadline.so libssl.so libz.so)
+# The bundled LuaJIT runs git at configure time, even out of a release tarball.
+makedepends=(cmake git ninja systemd)
+provides=("tarantool=$pkgver")
+conflicts=(tarantool)
+backup=(etc/default/tarantool etc/tarantool/instances.available/example.lua)
+options=(!debug !lto)
+source=("https://download.tarantool.org/tarantool/src/tarantool-$pkgver.tar.gz"
+        tarantool.sysusers
+        tarantool.tmpfiles)
+sha256sums=('4e786e54b6053ba9a19eefb2bff4690dcf8a6b96296aed902a6d2f70abb6e756'
+            '203006d16270e1035a793ab5074c906d3ad6952ff601f0e63f07a5c4331d4b8c'
+            'a6dd668df5ed56fb127377da762167671ba85945bcab2c2e2adab205aea81d33')
+
+prepare() {
+  # The prefix of OpenSSL 3. The bundled curl is given the parent of the
+  # include directory Tarantool finds: /usr/include would be OpenSSL 4.
+  mkdir -p openssl-3
+  ln -sfn /usr/include/openssl-3 openssl-3/include
+  ln -sfn /usr/lib/openssl-3 openssl-3/lib
+
+  # The pid files of tarantoolctl go to /run, not /var/run.
+  sed -i 's|"${CMAKE_INSTALL_FULL_LOCALSTATEDIR}/run/tarantool"|"/run/tarantool"|' \
+    "tarantool-$pkgver/extra/dist/CMakeLists.txt"
+  grep -qF '"/run/tarantool"' "tarantool-$pkgver/extra/dist/CMakeLists.txt"
+}
+
+build() {
+  export PKG_CONFIG_PATH=/usr/lib/openssl-3/pkgconfig
+  # The bundled projects of older series predate CMake 4.
+  export CMAKE_POLICY_VERSION_MINIMUM=3.5
+  cmake -S "tarantool-$pkgver" -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_LIBDIR=lib \
+    -DCMAKE_INSTALL_SYSCONFDIR=/etc \
+    -DCMAKE_INSTALL_LOCALSTATEDIR=/var \
+    -DCMAKE_SKIP_RPATH=ON \
+    -DOPENSSL_ROOT_DIR="$srcdir/openssl-3" \
+    -DENABLE_BACKTRACE=ON \
+    -DENABLE_FEEDBACK_DAEMON=OFF \
+    -DENABLE_DIST=ON \
+    -DWITH_SYSTEMD=ON \
+    -DWITH_SYSVINIT=OFF
+  cmake --build build
+}
+
+check() {
+  build/src/tarantool --version
+  local dir
+  dir=$(mktemp -d)
+  (cd "$dir" && "$srcdir/build/src/tarantool" -e "
+    box.cfg{log = 'tarantool.log'}
+    local s = box.schema.space.create('check')
+    s:create_index('pk')
+    s:insert{1, 'one'}
+    assert(s:get(1)[2] == 'one')
+    os.exit(0)
+  ")
+  rm -rf "$dir"
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+
+  # The directories of tarantoolctl are made, for the user tarantool, by
+  # systemd-tmpfiles.
+  rm "$pkgdir/usr/lib/tmpfiles.d/tarantool.conf"
+  rmdir "$pkgdir/var/lib/tarantool" "$pkgdir/var/log/tarantool"
+  rmdir --ignore-fail-on-non-empty "$pkgdir/var/lib" "$pkgdir/var/log" "$pkgdir/var"
+  install -Dm644 "$srcdir/tarantool.sysusers" "$pkgdir/usr/lib/sysusers.d/tarantool.conf"
+  install -Dm644 "$srcdir/tarantool.tmpfiles" "$pkgdir/usr/lib/tmpfiles.d/tarantool.conf"
+
+  install -Dm644 "tarantool-$pkgver/LICENSE" -t "$pkgdir/usr/share/licenses/$pkgname"
+}

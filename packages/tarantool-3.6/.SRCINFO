@@ -1,0 +1,30 @@
+pkgbase = tarantool-3.6
+	pkgdesc = In-memory computing platform: a database and a Lua application server (3.6 series)
+	pkgver = 3.6.4
+	pkgrel = 1
+	url = https://www.tarantool.io
+	arch = x86_64
+	license = BSD-2-Clause
+	makedepends = cmake
+	makedepends = git
+	makedepends = ninja
+	depends = gcc-libs
+	depends = glibc
+	depends = icu
+	depends = openssl-3
+	depends = readline
+	depends = zlib
+	depends = libcrypto.so
+	depends = libicui18n.so
+	depends = libicuuc.so
+	depends = libreadline.so
+	depends = libssl.so
+	depends = libz.so
+	provides = tarantool=3.6.4
+	conflicts = tarantool
+	options = !debug
+	options = !lto
+	source = https://download.tarantool.org/tarantool/src/tarantool-3.6.4.tar.gz
+	sha256sums = 0920ddf7fb779dacaab81e5f775a7afc6f65fc606e6a5cfc0cec6483431fccfc
+
+pkgname = tarantool-3.6

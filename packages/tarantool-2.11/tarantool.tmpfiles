@@ -1,0 +1,4 @@
+# The directories of tarantoolctl, /etc/default/tarantool.
+d /run/tarantool 0750 tarantool tarantool -
+d /var/lib/tarantool 0750 tarantool tarantool -
+d /var/log/tarantool 0750 tarantool tarantool -

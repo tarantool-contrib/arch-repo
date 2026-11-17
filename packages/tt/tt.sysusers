@@ -1,0 +1,3 @@
+# The user of the system environment of tt, as the packages of tt for
+# Debian and Fedora make it.
+u tarantool - "Tarantool" /var/lib/tarantool

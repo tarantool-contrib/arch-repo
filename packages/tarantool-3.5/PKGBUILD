@@ -1,0 +1,71 @@
+# Tarantool of one series, x.y: its patch releases are the upgrades of the
+# package. The series are separate packages that conflict with each other,
+# so that pacman -Syu never moves a database to another series.
+
+_series=3.5
+pkgname=tarantool-$_series
+pkgver=3.5.2
+pkgrel=1
+pkgdesc="In-memory computing platform: a database and a Lua application server ($_series series)"
+arch=(x86_64)
+url=https://www.tarantool.io
+license=(BSD-2-Clause)
+# Tarantool and its bundled curl build against OpenSSL 3, not 4. The
+# libraries are given by soname too: makepkg pins them to the sonames the
+# programs link, so pacman holds back an upgrade that would break them.
+depends=(gcc-libs glibc icu openssl-3 readline zlib
+         libcrypto.so libicui18n.so libicuuc.so libreadline.so libssl.so libz.so)
+# The bundled LuaJIT runs git at configure time, even out of a release tarball.
+makedepends=(cmake git ninja)
+provides=("tarantool=$pkgver")
+conflicts=(tarantool)
+options=(!debug !lto)
+source=("https://download.tarantool.org/tarantool/src/tarantool-$pkgver.tar.gz")
+sha256sums=('8a7e493e0c47ed2bf48676e4b28c9fced4ff0e6ef8b43047622a7e9d95f78bc1')
+
+prepare() {
+  # The prefix of OpenSSL 3. The bundled curl is given the parent of the
+  # include directory Tarantool finds: /usr/include would be OpenSSL 4.
+  mkdir -p openssl-3
+  ln -sfn /usr/include/openssl-3 openssl-3/include
+  ln -sfn /usr/lib/openssl-3 openssl-3/lib
+}
+
+# ENABLE_DIST as the packages of Tarantool have it: in 3.x it makes no
+# tarantoolctl, but the EmmyLua stubs it installs are built only with it.
+build() {
+  export PKG_CONFIG_PATH=/usr/lib/openssl-3/pkgconfig
+  # The bundled projects of older series predate CMake 4.
+  export CMAKE_POLICY_VERSION_MINIMUM=3.5
+  cmake -S "tarantool-$pkgver" -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_LIBDIR=lib \
+    -DCMAKE_INSTALL_SYSCONFDIR=/etc \
+    -DCMAKE_SKIP_RPATH=ON \
+    -DOPENSSL_ROOT_DIR="$srcdir/openssl-3" \
+    -DENABLE_BACKTRACE=ON \
+    -DENABLE_FEEDBACK_DAEMON=OFF \
+    -DENABLE_DIST=ON
+  cmake --build build
+}
+
+check() {
+  build/src/tarantool --version
+  local dir
+  dir=$(mktemp -d)
+  (cd "$dir" && "$srcdir/build/src/tarantool" -e "
+    box.cfg{log = 'tarantool.log'}
+    local s = box.schema.space.create('check')
+    s:create_index('pk')
+    s:insert{1, 'one'}
+    assert(s:get(1)[2] == 'one')
+    os.exit(0)
+  ")
+  rm -rf "$dir"
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+  install -Dm644 "tarantool-$pkgver/LICENSE" -t "$pkgdir/usr/share/licenses/$pkgname"
+}

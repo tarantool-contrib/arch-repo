@@ -1,0 +1,4 @@
+# The directories of the system environment of tt, /etc/tarantool/tt.yaml.
+d /var/lib/tarantool/sys_env 0750 tarantool tarantool -
+d /var/log/tarantool/sys_env 0750 tarantool tarantool -
+d /run/tarantool/sys_env 0750 tarantool tarantool -

@@ -1,0 +1,90 @@
+# tt, built the way its releases are (goreleaser/.goreleaser_linux.yml of
+# tt), but against OpenSSL 3 of the system rather than a static one: its
+# go-openssl does not build with OpenSSL 4.
+
+pkgname=tt
+pkgver=2.15.2
+pkgrel=1
+# The commit of the tag v$pkgver, which tt version reports.
+_commit=bd6ade645e0a5f0a573cfdb1e37595b58058e909
+pkgdesc='Command-line utility to manage Tarantool applications'
+arch=(x86_64)
+url=https://github.com/tarantool/tt
+# tt is BSD-2-Clause, the others are of the modules it is built of.
+license=(BSD-2-Clause Apache-2.0 BSD-3-Clause MIT MPL-2.0)
+depends=(glibc openssl-3 libcrypto.so libssl.so)
+makedepends=(go mage)
+optdepends=('tarantool: to run Tarantool applications'
+            'git: for tt create and tt rocks'
+            'unzip: for tt rocks'
+            'zip: for tt pack'
+            'curl: for tt rocks'
+            'logrotate: to rotate the logs of the system environment')
+backup=(etc/tarantool/tt.yaml etc/logrotate.d/tt)
+options=(!debug !lto)
+source=("https://github.com/tarantool/tt/releases/download/v$pkgver/tt-$pkgver-complete.tar.gz"
+        tt.sysusers
+        tt.tmpfiles)
+sha256sums=('8db35fb323fa84f3d83914ed2461e40604171c4793b496d6dfc804618e8d0fac'
+            'a87575b2b3e3a0f1ee546528e702de893f3ae4323003bd42d93f649cd4a4e20f'
+            '6763c8c5bd84d6f045936fb479d478b6fd5c4a355b511b3074c5e6318fbe66c9')
+
+_go() {
+  export GOPATH="$srcdir/go" GOFLAGS='-buildmode=pie -trimpath -mod=readonly -modcacherw'
+  export CGO_CPPFLAGS="$CPPFLAGS -I/usr/include/openssl-3" CGO_CFLAGS="$CFLAGS"
+  export CGO_CXXFLAGS="$CXXFLAGS" CGO_LDFLAGS="$LDFLAGS -L/usr/lib/openssl-3"
+  export PKG_CONFIG_PATH=/usr/lib/openssl-3/pkgconfig
+}
+
+prepare() {
+  cd "tt-$pkgver"
+  _go
+  go mod download
+  # The hooks goreleaser runs before the build: the cartridge-cli of tt and
+  # the Go code of the Lua sources.
+  mage PatchCC
+  mage GenerateGoCode
+}
+
+build() {
+  cd "tt-$pkgver"
+  _go
+  go build -o tt \
+    -tags netgo,osusergo,go_tarantool_msgpack_v5,go_storage_ssl \
+    -ldflags "-linkmode=external
+      -X github.com/tarantool/tt/cli/version.gitTag=v$pkgver
+      -X github.com/tarantool/tt/cli/version.gitCommit=${_commit::7}
+      -X github.com/tarantool/tt/cli/configure.defaultConfigPath=/etc/tarantool" \
+    ./cli
+  local shell
+  for shell in bash zsh fish; do
+    ./tt completion "$shell" > "completion.$shell"
+  done
+}
+
+check() {
+  cd "tt-$pkgver"
+  ./tt version
+  [[ $(./tt version --short) == "$pkgver" ]]
+}
+
+package() {
+  cd "tt-$pkgver"
+  install -Dm755 tt -t "$pkgdir/usr/bin"
+  install -Dm644 completion.bash "$pkgdir/usr/share/bash-completion/completions/tt"
+  install -Dm644 completion.zsh "$pkgdir/usr/share/zsh/site-functions/_tt"
+  install -Dm644 completion.fish "$pkgdir/usr/share/fish/vendor_completions.d/tt.fish"
+
+  # The system environment of tt (tt -S), as its packages for Debian and
+  # Fedora have it.
+  install -Dm644 package/tt.yaml.default "$pkgdir/etc/tarantool/tt.yaml"
+  install -dm755 "$pkgdir/etc/tarantool/instances.enabled"
+  install -Dm644 package/logrotate.conf "$pkgdir/etc/logrotate.d/tt"
+  install -Dm644 "$srcdir/tt.sysusers" "$pkgdir/usr/lib/sysusers.d/tt.conf"
+  install -Dm644 "$srcdir/tt.tmpfiles" "$pkgdir/usr/lib/tmpfiles.d/tt.conf"
+  install -d "$pkgdir/usr/share/doc/tt"
+  cp -r package/instances.available package/systemd "$pkgdir/usr/share/doc/tt/"
+
+  install -Dm644 README.md CHANGELOG.md -t "$pkgdir/usr/share/doc/tt"
+  install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname"
+}
