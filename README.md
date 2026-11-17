@@ -185,12 +185,11 @@ libraries, and runs `test.sh`.
 - Let GitHub Actions create pull requests (Settings, Actions, General,
   Workflow permissions), for the watch workflow.
 - Require the check `Check result` of the check workflow on `master`: it
-  fails when the packages, the scripts or a build fail. The pull requests
-  the watch workflow opens with the
-  `GITHUB_TOKEN` start no workflows, so it starts the check workflow on
-  their branches itself; with a secret `WATCH_TOKEN`, a token of a user or
-  of a GitHub App that may push and open pull requests, they start it
-  themselves.
+  fails when the packages, the scripts or a build fail. The run of the
+  check workflow on a pull request the watch workflow opens with the
+  `GITHUB_TOKEN` waits for approval, and the watch workflow approves it;
+  with a secret `WATCH_TOKEN`, a token of a user or of a GitHub App that
+  may push and open pull requests, the run starts by itself.
 - Put the armored secret key of `keys/` into the secret `SIGNING_KEY` of
   the repository: the publish workflow signs the packages and the
   databases with it, and fails without it. The key has no passphrase and

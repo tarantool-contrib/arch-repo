@@ -26,8 +26,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
-      # Push the branches of the pull requests, open them, and start the
-      # check workflow on them.
+      # Push the branches of the pull requests, open them, and approve the
+      # runs of the check workflow on them.
       contents: write
       pull-requests: write
       actions: write
@@ -37,12 +37,10 @@ jobs:
           persist-credentials: false
 
       # With WATCH_TOKEN, a token of a user or a GitHub App, the pull
-      # requests start the check workflow themselves; those opened with
-      # the GITHUB_TOKEN start none, and the check workflow is started on
-      # their branches.
+      # requests start the check workflow themselves; the run of one opened
+      # with the GITHUB_TOKEN waits for approval, which watch.sh gives.
       - name: Open pull requests for new builds
         env:
           GH_TOKEN: ${{ secrets.WATCH_TOKEN || github.token }}
           GH_REPO: ${{ github.repository }}
-          WATCH_DISPATCH: ${{ secrets.WATCH_TOKEN == '' }}
         run: scripts/watch.sh
