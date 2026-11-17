@@ -1,0 +1,188 @@
+name: check
+
+# On a pull request, and on the branch of a pull request of the watch
+# workflow, which starts it there: the packages, the scripts and the
+# workflows, and a build of each package changed, installed and tested on a
+# clean Arch Linux. Nightly: the repository GitHub Pages serves, checked
+# against the releases, and each of its packages installed from it and
+# tested on the Arch Linux of the day.
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      nightly:
+        description: Check the repository served, rather than the branch.
+        type: boolean
+        default: false
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lint:
+    name: Packages and scripts
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && !inputs.nightly)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      builds: ${{ steps.packages.outputs.builds }}
+    steps:
+      # All of the history, for the base the branch is compared with, and
+      # the tags.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # Not the shellcheck of the runner: an older one warns of what this one
+      # does not.
+      - name: shellcheck
+        env:
+          VERSION: 0.11.0
+          SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+        run: |
+          archive=$RUNNER_TEMP/shellcheck.tar.xz
+          curl -fsSL -o "$archive" \
+            "https://github.com/koalaman/shellcheck/releases/download/v$VERSION/shellcheck-v$VERSION.linux.x86_64.tar.xz"
+          echo "$SHA256  $archive" | sha256sum -c -
+          tar -xJf "$archive" -C "$RUNNER_TEMP" --strip-components=1 "shellcheck-v$VERSION/shellcheck"
+          "$RUNNER_TEMP/shellcheck" --version
+          "$RUNNER_TEMP/shellcheck" scripts/*.sh packages/*/test.sh
+
+      - name: actionlint
+        env:
+          VERSION: 1.7.12
+          SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          archive=$RUNNER_TEMP/actionlint.tar.gz
+          curl -fsSL -o "$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v$VERSION/actionlint_${VERSION}_linux_amd64.tar.gz"
+          echo "$SHA256  $archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint"
+
+      # The packages, and those changed since the branch left master.
+      - id: packages
+        name: Check the packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          base=$(git merge-base origin/master HEAD)
+          builds=$(scripts/docker.sh --root scripts/check-packages.sh "$base")
+          echo "builds=$builds" >> "$GITHUB_OUTPUT"
+          jq -r '.[] | "- build `\(.pkgbase)` \(.version) for \(.arch)"' <<<"$builds" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build ${{ matrix.pkgbase }} ${{ matrix.version }} ${{ matrix.arch }}
+    needs: lint
+    if: needs.lint.outputs.builds != '[]'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.lint.outputs.builds) }}
+    env:
+      PKGBASE: ${{ matrix.pkgbase }}
+      PACKAGER: check workflow <https://github.com/${{ github.repository }}>
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build
+        run: scripts/docker.sh --root scripts/makepkg.sh "packages/$PKGBASE" out
+
+      - name: Install and test
+        run: scripts/docker.sh --root scripts/install-test.sh "$PKGBASE" out/*.pkg.tar.zst
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pkg-${{ matrix.pkgbase }}-${{ matrix.arch }}
+          path: out/*.pkg.tar.zst
+          if-no-files-found: error
+          retention-days: 7
+
+  site:
+    name: Site
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.nightly)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      pkgbases: ${{ steps.served.outputs.pkgbases }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: served
+        name: What is served
+        env:
+          GH_REPO: ${{ github.repository }}
+        run: |
+          source scripts/lib.sh
+          pkgbases=$(curl -fsSL --retry 3 "$(site_url)/index.json" | jq -c '[.packages[].pkgbase] | unique')
+          echo "pkgbases=$pkgbases" >> "$GITHUB_OUTPUT"
+
+      - name: Check the site
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: scripts/docker.sh --root scripts/check.sh
+
+  install:
+    name: Install ${{ matrix.pkgbase }}
+    needs: site
+    if: ${{ !cancelled() && needs.site.outputs.pkgbases != '' && needs.site.outputs.pkgbases != '[]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        pkgbase: ${{ fromJSON(needs.site.outputs.pkgbases) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # From the repository, on the Arch Linux of the day: a library that
+      # moved to another soname shows here, and the watch workflow opens a
+      # pull request to rebuild what needs it.
+      - name: Install and test
+        env:
+          GH_REPO: ${{ github.repository }}
+          PKGBASE: ${{ matrix.pkgbase }}
+        run: scripts/docker.sh --root scripts/install-test.sh "$PKGBASE"
+
+  # The one check to require of a pull request: the matrix of builds varies
+  # from one to another.
+  result:
+    name: Check result
+    needs: [lint, build]
+    if: ${{ !cancelled() && needs.lint.result != 'skipped' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Result
+        env:
+          LINT: ${{ needs.lint.result }}
+          BUILD: ${{ needs.build.result }}
+        run: |
+          echo "packages and scripts: $LINT, builds: $BUILD"
+          [ "$LINT" = success ] && { [ "$BUILD" = success ] || [ "$BUILD" = skipped ]; }
