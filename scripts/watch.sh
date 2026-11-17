@@ -21,10 +21,9 @@
 # nothing.
 #
 # The branches are made from HEAD of the checkout and pushed to the
-# remote. The pull requests a workflow opens with its GITHUB_TOKEN start
-# no workflows: unless $WATCH_DISPATCH is false (a token of a user or an
-# app opens them), the check workflow is started on each branch by hand.
-# It needs docker, for scripts/docker.sh.
+# remote. A pull request a workflow opens with its GITHUB_TOKEN gets a run
+# of the check workflow that waits for approval: watch.sh approves it. It
+# needs docker, for scripts/docker.sh.
 # shellcheck source=lib.sh
 source "$(dirname "$0")/lib.sh"
 
@@ -34,6 +33,26 @@ if [ "${1:-}" = --dry-run ]; then
 	shift
 fi
 [ $# = 0 ] || die "usage: watch.sh [--dry-run]"
+
+# start_check SHA makes sure the check workflow runs on the pull request of
+# the commit SHA: it approves the run that waits for approval, as that of a
+# pull request opened by the GITHUB_TOKEN of a workflow does; that of one
+# opened by the token of a user or of an app starts by itself.
+start_check() {
+	local run
+	for _ in $(seq 24); do
+		run=$(gh api "repos/$GH_REPO/actions/workflows/check.yml/runs?event=pull_request&head_sha=$1" \
+			--jq '.workflow_runs[0] // empty | "\(.id) \(.conclusion)"')
+		if [ -n "$run" ]; then
+			if [ "${run#* }" = action_required ]; then
+				gh api -X POST "repos/$GH_REPO/actions/runs/${run%% *}/approve" > /dev/null || return 1
+			fi
+			return 0
+		fi
+		sleep 5
+	done
+	return 1
+}
 
 # upstream REPO PREFIX prints the versions X.Y.Z of the releases of REPO,
 # whose tags are PREFIX X.Y.Z, sorted.
@@ -195,6 +214,7 @@ for item in "${builds[@]}"; do
 		commit -q -m "$title" ${url:+-m "$url"}
 	# The branch is the workflow's: a run whose pull request failed left it.
 	rgit -C "$tree" push -q --force "$(remote)" "HEAD:refs/heads/$branch"
+	sha=$(git -C "$tree" rev-parse HEAD)
 	git -C "$root" worktree remove --force "$tree"
 
 	cat > "$work/body" <<-EOF
@@ -210,8 +230,8 @@ for item in "${builds[@]}"; do
 		continue
 	fi
 	say "$tag: $pr"
-	if [ "${WATCH_DISPATCH:-true}" != false ] && ! gh workflow run check.yml --ref "$branch"; then
-		say "warning: $tag: the check workflow did not start on $branch: start it by hand"
+	if ! start_check "$sha"; then
+		say "warning: $tag: the check workflow did not start on $pr: approve its run there"
 		failed=1
 	fi
 	for number in "${older[@]}"; do
