@@ -8,7 +8,7 @@
 
 _series=2.11
 pkgname=tarantool-$_series
-pkgver=2.11.10
+pkgver=2.11.11
 pkgrel=1
 pkgdesc="In-memory computing platform: a database and a Lua application server ($_series series)"
 arch=(x86_64)
@@ -28,7 +28,7 @@ options=(!debug !lto)
 source=("https://download.tarantool.org/tarantool/src/tarantool-$pkgver.tar.gz"
         tarantool.sysusers
         tarantool.tmpfiles)
-sha256sums=('4e786e54b6053ba9a19eefb2bff4690dcf8a6b96296aed902a6d2f70abb6e756'
+sha256sums=('bbd596c7f266a819b5a6a482f4f3ae7d9aa22508f0f2b28bf6cbd940abc2465c'
             '203006d16270e1035a793ab5074c906d3ad6952ff601f0e63f07a5c4331d4b8c'
             'a6dd668df5ed56fb127377da762167671ba85945bcab2c2e2adab205aea81d33')
 
